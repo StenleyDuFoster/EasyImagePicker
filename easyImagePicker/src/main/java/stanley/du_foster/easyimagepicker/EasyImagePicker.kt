@@ -7,78 +7,123 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.exifinterface.media.ExifInterface
+import androidx.lifecycle.MutableLiveData
+import kotlinx.coroutines.InternalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.FlowCollector
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flow
 import java.io.File
 import java.io.FileOutputStream
 
-class EasyImagePicker {
+class EasyImagePicker(private val activity: AppCompatActivity) {
 
-    lateinit var activity: Activity
-
-    fun pickImage(activity: Activity) {
-        this.activity = activity
+    companion object {
+        const val IMAGE_FORMAT = "image/*"
+        const val PDF_FORMAT = "application/pdf"
     }
 
-    private fun choseDialog(title: String, messege: String, positiveText: String, negativeString: String, style: Int?) {
-//        val myAlertDialog: AlertDialog.Builder = AlertDialog.Builder(
-//            activity, R.style.AlertDialogCustom
-//        )
-//        myAlertDialog.setTitle(getString(R.string.upload_picture_options))
-//        myAlertDialog.setMessage(getString(R.string.upload_picture_text))
-//
-//        myAlertDialog.setPositiveButton(getString(R.string.upload_picture_positive),
-//            { arg0, arg1 ->
-//                getGallerySingleImageLauncher.launch("image/*")
-//            })
-//
-//        myAlertDialog.setNegativeButton(getString(R.string.upload_picture_negative),
-//            { arg0, arg1 ->
-//                if (hasCameraPermission()) {
-//                    takeFromPhoto()
-//                } else {
-//                    requestSinglePermissionLauncher.launch(arrayOf(Manifest.permission.CAMERA))
-//                }
-//            })
-//
-//        myAlertDialog.show()
+    private var photoUri: Uri? = null
+     var resualtUri = MutableLiveData<Uri>()
+    private var resualtFile = MutableLiveData<File>()
+
+    fun pickImageUri(): MutableLiveData<Uri> {
+        choseDialog(galleryLauncher = {
+            getGallerySingleImageLauncher.launch(IMAGE_FORMAT)
+        })
+        return resualtUri
+    }
+
+    fun pickImagesUri() {
+        choseDialog(galleryLauncher = {
+            getGalleryMultipleImagesLauncher.launch(IMAGE_FORMAT)
+        })
+    }
+
+    fun pickPdfUri() {
+        getPdfLauncher.launch(PDF_FORMAT)
+    }
+
+    fun pickPdfsUris() {
+        getPdfLauncher.launch(PDF_FORMAT)
+    }
+
+    fun pickImageFile() {
+        choseDialog(galleryLauncher = {
+            getGallerySingleImageLauncher.launch(IMAGE_FORMAT)
+        })
+    }
+
+    fun pickImagesFiles() {
+        choseDialog(galleryLauncher = {
+            getGalleryMultipleImagesLauncher.launch(IMAGE_FORMAT)
+        })
+    }
+
+    fun pickPdfFile() {
+        getPdfLauncher.launch(PDF_FORMAT)
+    }
+
+    fun pickPdfFiles() {
+        getPdfLauncher.launch(PDF_FORMAT)
+    }
+
+    fun onDestroy() {
+        requestSinglePermissionLauncher.unregister()
+        getCameraImageLauncher.unregister()
+        getGallerySingleImageLauncher.unregister()
+        getGalleryMultipleImagesLauncher.unregister()
+    }
+
+    private fun choseDialog(title: String = "1", messege: String = "2", positiveText: String = "3", negativeString: String = "4", style: Int? = null, galleryLauncher: () -> Unit) {
+        val myAlertDialog: AlertDialog.Builder = if (style == null) {
+            AlertDialog.Builder(activity)
+        } else {
+            AlertDialog.Builder(activity, style)
+        }
+
+
+        myAlertDialog.setTitle(title)
+        myAlertDialog.setMessage(messege)
+
+        myAlertDialog.setPositiveButton(positiveText
+        ) { arg0, arg1 ->
+            galleryLauncher()
+        }
+
+        myAlertDialog.setNegativeButton(negativeString
+        ) { arg0, arg1 ->
+            if (hasCameraPermission()) {
+                takeFromPhoto()
+            } else {
+                requestSinglePermissionLauncher.launch(arrayOf(Manifest.permission.CAMERA))
+            }
+        }
+
+        myAlertDialog.show()
     }
 
     private fun takeFromPhoto() {
         val photoFile = File.createTempFile(
             "JPEG_myfile",
             ".jpg",
-            requireContext().filesDir
+            activity.filesDir
         )
-        photoUri = FileProvider.getUriForFile(requireContext(), BuildConfig.APPLICATION_ID + ".fileprovider", photoFile ?: return)
+        photoUri = FileProvider.getUriForFile(activity.applicationContext, activity.packageName + ".fileprovider", photoFile ?: return)
 
         getCameraImageLauncher.launch(photoUri)
     }
 
-    private val getCameraImageLauncher = registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+    private val getCameraImageLauncher = activity.registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         if (success) {
-            photoUri?.let {
-                getImageFileFromUri(it)?.let { file ->
-                    val requestFile =
-                        file.asRequestBody("multipart/form-data".toMediaTypeOrNull())
-
-                    var imageName = loadImageManeForm
-
-                    val body = MultipartBody.Part.createFormData(
-                        imageName,
-                        file.getName(),
-                        requestFile
-                    )
-
-                    imageData.add(body)
-
-                    adapter.imageAddedToRequest(loadImageManeForm)
-                    binding.recycler.apply {
-                        val myAdapter = adapter
-                        adapter = myAdapter
-                    }
-                }
+            photoUri?.let { uri ->
+                resualtUri.postValue(uri)
             }
         }
     }
@@ -87,98 +132,51 @@ class EasyImagePicker {
         if (resultsMap.all { it.value == true }) {
             takeFromPhoto()
         } else {
-            Toast.makeText(requireContext(), "Permission denied", Toast.LENGTH_SHORT).show()
+            Toast.makeText(activity.applicationContext, "Permission denied", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun hasCameraPermission() = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    private fun hasCameraPermission() = ContextCompat.checkSelfPermission(activity.applicationContext, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
     private val getPdfLauncher =
-        registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        activity.registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
             uri?.let {
                 getPdfFileFromUri(it)?.let { file ->
-                    val requestFile = file.asRequestBody("multipart/form-data".toMediaTypeOrNull())
 
-                    val body = MultipartBody.Part.createFormData(
-                        loadImageManeForm,
-                        file.getName(),
-                        requestFile
-                    )
-
-                    imageData.add(body)
-
-                    adapter.imageAddedToRequest(loadImageManeForm)
-                    binding.recycler.apply {
-                        val myAdapter = adapter
-                        adapter = myAdapter
-                    }
                 }
             }
         }
 
     private val getGallerySingleImageLauncher =
-        registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-            uri?.let {
-                getImageFileFromUri(it)?.let { file ->
-                    val requestFile = file.asRequestBody("multipart/form-data".toMediaTypeOrNull())
+        activity.registerForActivityResult(ActivityResultContracts.GetContent()) { uriNullable: Uri? ->
+            uriNullable?.let { uri ->
+                resualtUri.postValue(uri)
+                getImageFileFromUri(uri)?.let { file ->
 
-                    val body = MultipartBody.Part.createFormData(
-                        loadImageManeForm,
-                        file.getName(),
-                        requestFile
-                    )
-
-                    imageData.add(body)
-
-                    adapter.imageAddedToRequest(loadImageManeForm)
-                    binding.recycler.apply {
-                        val myAdapter = adapter
-                        adapter = myAdapter
-                    }
                 }
             }
         }
 
     private val getGalleryMultipleImagesLauncher =
-        registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uriList ->
+        activity.registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uriList ->
             uriList?.forEachIndexed { index, uri ->
                 uri?.let {
                     getImageFileFromUri(it)?.let { file ->
-                        val requestFile =
-                            file.asRequestBody("multipart/form-data".toMediaTypeOrNull())
 
-                        var imageName = loadImageManeForm.substring(0, loadImageManeForm.length - 1)
-                        imageName += index.toString()
-                        imageName += "]"
 
-                        val body = MultipartBody.Part.createFormData(
-                            imageName,
-                            file.getName(),
-                            requestFile
-                        )
-
-                        imageData.add(body)
-
-                        adapter.imageAddedToRequest(loadImageManeForm)
-                        binding.recycler.apply {
-                            val myAdapter = adapter
-                            adapter = myAdapter
-                        }
                     }
-
                 }
             }
         }
 
     private fun getPdfFileFromUri(uri: Uri): File? {
-        val inputStreamForBytes =
-            requireActivity().contentResolver.openInputStream(uri) ?: return null
+        val inputStreamForBytes = activity.contentResolver.openInputStream(uri) ?: return null
         val bytes = inputStreamForBytes.readBytes()
         inputStreamForBytes.close()
 
         val bitmapOriginal = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
 
-        val filesDir: File = requireContext().getFilesDir()
+        val filesDir: File = activity.applicationContext.filesDir
         val imageFile = File(filesDir, android.R.attr.name.toString() + ".jpg")
 
         val os = FileOutputStream(imageFile)
@@ -190,13 +188,12 @@ class EasyImagePicker {
     }
 
     private fun getImageFileFromUri(uri: Uri): File? {
-        val inputStreamForBytes =
-            requireActivity().contentResolver.openInputStream(uri) ?: return null
+        val inputStreamForBytes = activity.contentResolver.openInputStream(uri) ?: return null
         val bytes = inputStreamForBytes.readBytes()
         inputStreamForBytes.close()
 
         val inputStreamForExif =
-            requireActivity().contentResolver.openInputStream(uri) ?: return null
+            activity.contentResolver.openInputStream(uri) ?: return null
         val exifInterface = ExifInterface(inputStreamForExif)
         val rotation = exifInterface.getAttributeInt(
             ExifInterface.TAG_ORIENTATION,
@@ -207,7 +204,7 @@ class EasyImagePicker {
         val bitmapOriginal = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         val bitmapRotated = bitmapOriginal.rotateImageIfRequired(rotation)
 
-        val filesDir: File = requireContext().getFilesDir()
+        val filesDir: File = activity.applicationContext.filesDir
         val imageFile = File(filesDir, android.R.attr.name.toString() + ".jpg")
 
         val os = FileOutputStream(imageFile)
